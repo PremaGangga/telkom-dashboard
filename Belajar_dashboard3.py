@@ -329,6 +329,12 @@ table.tk-tbl td.mut { color: #94a3b8; }
 .tk-pl.low, .tk-pl.baik { background: #e9f7ee; color: #15803d; }
 .tk-pl.medium, .tk-pl.waspada { background: #fff4e0; color: #b45309; }
 .tk-pl.high, .tk-pl.buruk { background: #fdecea; color: #b91c1c; }
+
+/* ================= V6: tombol Previous / Next ================= */
+.st-key-pagenav { margin-top: 40px; padding-top: 22px; border-top: 1px solid #f0f0f0; }
+.st-key-pagenav [data-testid="stHorizontalBlock"] { align-items: center; }
+.st-key-pagenav [data-testid="stColumn"]:last-child .stButton { display: flex; justify-content: flex-end; }
+.st-key-pagenav .stButton > button { padding: .55rem 1.6rem; white-space: nowrap; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -752,6 +758,21 @@ page = st.session_state.page
 res = st.session_state.get("res")
 snap = market_snapshot()
 
+
+def page_nav(current):
+    """Tombol Sebelumnya / Selanjutnya berdasarkan urutan di PAGES."""
+    if current not in PAGES:
+        return
+    i = PAGES.index(current)
+    prev_p = PAGES[i - 1] if i > 0 else None
+    next_p = PAGES[i + 1] if i < len(PAGES) - 1 else None
+    with st.container(key="pagenav"):
+        c_prev, c_mid, c_next = st.columns([1.7, 2, 1.9], vertical_alignment="center")
+        if prev_p:
+            c_prev.button(f"← Sebelumnya: {NAV_LABEL[prev_p]}", key=f"pn_prev_{i}", on_click=go, args=(prev_p,))
+        if next_p:
+            c_next.button(f"Selanjutnya: {NAV_LABEL[next_p]} →", key=f"pn_next_{i}", type="primary", on_click=go, args=(next_p,))
+
 # ==========================================================
 # 6. HEADER  (navbar atas + ticker berjalan + announcement)
 # ==========================================================
@@ -1057,54 +1078,57 @@ elif page == P_PERF:
     else:
         weekly, le = res["weekly"], res["le"]
 
-        section("Historical Volatility:", "Actual vs Predicted")
-        ev = weekly.dropna(subset=["Vol_Predicted"])
-        fig, ax = new_fig(11, 3.4)
-        ax.plot(ev.index, ev["Volatility_smooth"], color=GREY, label="Actual Volatility", linewidth=1.5)
-        ax.plot(ev.index, ev["Vol_Predicted"], color=RED, label="Predicted Volatility (RF)", linewidth=1.8)
-        ax.legend(frameon=False)
-        show(fig)
+        tab_reg, tab_cls = st.tabs(["Regression Evaluation", "Classification Performance"])
 
-        m = res["reg_metrics"]
-        st.caption(f"Data split (time-based, tanpa shuffle): Train {m['n_train']} minggu · Test {m['n_test']} minggu")
-
-        section("Regression", "Evaluation Metrics")
-        a, b, c, d = st.columns(4)
-        a.markdown(metric_card("MAE", f"{m['test_mae']:.6f}", "Mean Absolute Error", BLUE), unsafe_allow_html=True)
-        b.markdown(metric_card("RMSE", f"{m['test_rmse']:.6f}", "Root Mean Squared Error", AMBER), unsafe_allow_html=True)
-        c.markdown(metric_card("R² Score", f"{m['test_r2']:.4f}", "Goodness of Fit", GREEN), unsafe_allow_html=True)
-        d.markdown(metric_card("MAPE", f"{m['test_mape']:.2f}%", "Mean Absolute % Error", PURPLE), unsafe_allow_html=True)
-
-        section("Risk Classification", "Performance")
-        c = res["cls"]
-        s1, s2 = st.columns(2)
-        
-        s1.markdown(metric_card("Test Accuracy", f"{c['test_acc'] * 100:.2f}%", "Data uji", GREEN), unsafe_allow_html=True)
-        s2.markdown(metric_card("Test Samples", f"{len(c['y_test'])}", "minggu data uji", AMBER), unsafe_allow_html=True)
-        st.write("")
-
-        yt, yp = c["y_test"], c["y_test_pred"]
-        labels_idx = list(range(len(le.classes_)))
-        cm = confusion_matrix(yt, yp, labels=labels_idx)
-        col_cm, col_rep = st.columns([1, 1.3])
-        with col_cm:
-            fig, ax = plt.subplots(figsize=(5, 4))
-            ConfusionMatrixDisplay(cm, display_labels=le.classes_).plot(ax=ax, cmap=plt.cm.Reds, colorbar=False)
-            ax.set_title("Confusion Matrix - Risk Classification", fontsize=11, fontweight="bold")
+        # ---------------- TAB 1: REGRESSION EVALUATION ----------------
+        with tab_reg:
+            section("Historical Volatility:", "Actual vs Predicted")
+            ev = weekly.dropna(subset=["Vol_Predicted"])
+            fig, ax = new_fig(11, 3.4)
+            ax.plot(ev.index, ev["Volatility_smooth"], color=GREY, label="Actual Volatility", linewidth=1.5)
+            ax.plot(ev.index, ev["Vol_Predicted"], color=RED, label="Predicted Volatility (RF)", linewidth=1.8)
+            ax.legend(frameon=False)
             show(fig)
-        with col_rep:
-            st.write("#### Classification Report (Test)")
-            rep = classification_report(yt, yp, labels=labels_idx, target_names=le.classes_, output_dict=True, zero_division=0)
-            rdf = pd.DataFrame({k: rep[k] for k in list(le.classes_) + ["macro avg", "weighted avg"]}).T
-            rdf = rdf[["precision", "recall", "f1-score", "support"]]
-            acc_row = pd.DataFrame({"precision": [np.nan], "recall": [np.nan], "f1-score": [rep["accuracy"]],
-                                    "support": [rdf.loc[list(le.classes_), "support"].sum()]}, index=["accuracy"])
-            n_cls = len(le.classes_)
-            rdf = pd.concat([rdf.iloc[:n_cls], acc_row, rdf.iloc[n_cls:]])
-            html(html_table(rdf, fmt={"precision": "{:.3f}", "recall": "{:.3f}", "f1-score": "{:.3f}", "support": "{:,.0f}"},
-                            bar_cols=("f1-score",), index_label="Class"))
 
-        
+            m = res["reg_metrics"]
+            st.caption(f"Data split (time-based, tanpa shuffle): Train {m['n_train']} minggu · Test {m['n_test']} minggu")
+
+            section("Regression", "Evaluation Metrics")
+            a, b, c, d = st.columns(4)
+            a.markdown(metric_card("MAE", f"{m['test_mae']:.6f}", "Mean Absolute Error", BLUE), unsafe_allow_html=True)
+            b.markdown(metric_card("RMSE", f"{m['test_rmse']:.6f}", "Root Mean Squared Error", AMBER), unsafe_allow_html=True)
+            c.markdown(metric_card("R² Score", f"{m['test_r2']:.4f}", "Goodness of Fit", GREEN), unsafe_allow_html=True)
+            d.markdown(metric_card("MAPE", f"{m['test_mape']:.2f}%", "Mean Absolute % Error", PURPLE), unsafe_allow_html=True)
+
+        # ---------------- TAB 2: CLASSIFICATION PERFORMANCE ----------------
+        with tab_cls:
+            section("Risk Classification", "Performance")
+            cls = res["cls"]
+            s1, s2 = st.columns(2)
+            s1.markdown(metric_card("Test Accuracy", f"{cls['test_acc'] * 100:.2f}%", "Data uji", GREEN), unsafe_allow_html=True)
+            s2.markdown(metric_card("Test Samples", f"{len(cls['y_test'])}", "minggu data uji", AMBER), unsafe_allow_html=True)
+            st.write("")
+
+            yt, yp = cls["y_test"], cls["y_test_pred"]
+            labels_idx = list(range(len(le.classes_)))
+            cm = confusion_matrix(yt, yp, labels=labels_idx)
+            col_cm, col_rep = st.columns([1, 1.3])
+            with col_cm:
+                fig, ax = plt.subplots(figsize=(5, 4))
+                ConfusionMatrixDisplay(cm, display_labels=le.classes_).plot(ax=ax, cmap=plt.cm.Reds, colorbar=False)
+                ax.set_title("Confusion Matrix - Risk Classification", fontsize=11, fontweight="bold")
+                show(fig)
+            with col_rep:
+                st.write("#### Classification Report (Test)")
+                rep = classification_report(yt, yp, labels=labels_idx, target_names=le.classes_, output_dict=True, zero_division=0)
+                rdf = pd.DataFrame({k: rep[k] for k in list(le.classes_) + ["macro avg", "weighted avg"]}).T
+                rdf = rdf[["precision", "recall", "f1-score", "support"]]
+                acc_row = pd.DataFrame({"precision": [np.nan], "recall": [np.nan], "f1-score": [rep["accuracy"]],
+                                        "support": [rdf.loc[list(le.classes_), "support"].sum()]}, index=["accuracy"])
+                n_cls = len(le.classes_)
+                rdf = pd.concat([rdf.iloc[:n_cls], acc_row, rdf.iloc[n_cls:]])
+                html(html_table(rdf, fmt={"precision": "{:.3f}", "recall": "{:.3f}", "f1-score": "{:.3f}", "support": "{:,.0f}"},
+                                bar_cols=("f1-score",), index_label="Class"))
 
 # ---------------------- NETWORK & ESG ----------------------
 elif page == P_NET:
@@ -1263,6 +1287,8 @@ else:
             view[["Volatility", "Rolling_Return", "Trend", "Risk_Label"]].to_csv(index=True).encode("utf-8"),
             "TLKM_risk_regime_multifactor.csv", "text/csv",
         )
+
+page_nav(page)
 
 _body.__exit__(None, None, None)
 render_footer()
